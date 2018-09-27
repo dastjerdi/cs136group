@@ -163,9 +163,6 @@ class AdnoTyrant(Peer):
                     chosen.append(peer)
                     remaining_bw -= self.tyrant_rate[peer][1]
 
-            # Evenly "split" my upload bandwidth among the one chosen requester
-            # bws = even_split(self.up_bw, len(chosen))
-
         # create actual uploads out of the list of peer ids and bandwidths
         uploads = [Upload(self.id, peer_id, bw)
                    for (peer_id, bw) in zip(chosen, bws)]
