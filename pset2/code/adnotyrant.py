@@ -18,6 +18,8 @@ class AdnoTyrant(Peer):
         print "post_init(): %s here!" % self.id
         self.dummy_state = dict()
         self.dummy_state["cake"] = "lie"
+        self.tyrant_rate = {}
+        self.last_request = []
     
     def requests(self, peers, history):
         """
@@ -47,7 +49,20 @@ class AdnoTyrant(Peer):
         requests = []   # We'll put all the things we want here
         # Symmetry breaking is good...
         random.shuffle(needed_pieces)
+       
+        rarity_list = []
+        for peer in peers:
+            rarity_list += list(peer.available_pieces)
         
+        item_counter = [0]*len(set(rarity_list))
+        for i in rarity_list:
+            item_counter[i] += 1
+        rarity_list = zip(range(len(item_counter)), item_counter)
+        random.shuffle(rarity_list)
+        rarity_list.sort(key = lambda x: x[1]) 
+        need_requests = [x[0] for x in rarity_list]
+
+
         # Sort peers by id.  This is probably not a useful sort, but other 
         # sorts might be useful
         peers.sort(key=lambda p: p.id)
@@ -55,18 +70,21 @@ class AdnoTyrant(Peer):
         # (up to self.max_requests from each)
         for peer in peers:
             av_set = set(peer.available_pieces)
-            isect = av_set.intersection(np_set)
+            isect = [x for x in need_requests if x in np_set and x in av_set]
             n = min(self.max_requests, len(isect))
             # More symmetry breaking -- ask for random pieces.
             # This would be the place to try fancier piece-requesting strategies
             # to avoid getting the same thing from multiple peers at a time.
-            for piece_id in random.sample(isect, n):
+            # for piece_id in random.sample(isect, n):
+            for piece_id in isect:
                 # aha! The peer has this piece! Request it.
                 # which part of the piece do we need next?
                 # (must get the next-needed blocks in order)
                 start_block = self.pieces[piece_id]
                 r = Request(self.id, peer.id, piece_id, start_block)
                 requests.append(r)
+
+        self.last_request = requests
 
         return requests
 
@@ -89,6 +107,37 @@ class AdnoTyrant(Peer):
         # has a list of Download objects for each Download to this peer in
         # the previous round.
 
+        if not self.tyrant_rate:
+            for peer in peers:
+                self.tyrant_rate[peer.id] = [1, self.up_bw / len(peers) , 1]
+        
+        if round != 0:
+            for trans in history.uploads[round-1]:
+                self.tyrant_rate[trans.to_id][0] = trans.bw
+
+                
+            alpha = .31
+            gamma = .0079
+            non_choke = []
+            for trans in history.downloads[round - 1]:
+                non_choke.append(trans.from_id)
+            
+            peer_reqs = []
+            for req in self.last_request:
+                peer_reqs.append(req.peer_id)
+
+            for key in self.tyrant_rate:
+                if key in non_choke:
+                    self.tyrant_rate[key][1] = (1 - gamma)*self.tyrant_rate[key][1]
+                elif key in peer_reqs:
+                    self.tyrant_rate[key][1] = (1 + alpha)*self.tyrant_rate[key][1]
+
+                self.tyrant_rate[key][2] = self.tyrant_rate[key][0] / self.tyrant_rate[key][1]
+
+        upload_order = sorted(self.tyrant_rate.items(), key=lambda x: x[1][2])
+        upload_order = [x[0] for x in upload_order]
+
+
         if len(requests) == 0:
             logging.debug("No one wants my pieces!")
             chosen = []
@@ -98,10 +147,24 @@ class AdnoTyrant(Peer):
             # change my internal state for no reason
             self.dummy_state["cake"] = "pie"
 
-            request = random.choice(requests)
-            chosen = [request.requester_id]
+            chosen = []
+            bws = []
+
+            remaining_bw = self.up_bw - .001
+            request_peers = []
+            for req in requests:
+                request_peers.append(req.requester_id)
+
+            for peer in upload_order:
+                if remaining_bw <= 0:
+                    break
+                if peer in request_peers:
+                    bws.append(min(remaining_bw, self.tyrant_rate[peer][1]))
+                    chosen.append(peer)
+                    remaining_bw -= self.tyrant_rate[peer][1]
+
             # Evenly "split" my upload bandwidth among the one chosen requester
-            bws = even_split(self.up_bw, len(chosen))
+            # bws = even_split(self.up_bw, len(chosen))
 
         # create actual uploads out of the list of peer ids and bandwidths
         uploads = [Upload(self.id, peer_id, bw)

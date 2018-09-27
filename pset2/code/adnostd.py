@@ -53,9 +53,11 @@ class AdnoStd(Peer):
         for peer in peers:
             rarity_list += list(peer.available_pieces)
         
-        rarity_list = np.unique(rarity_list, return_counts = True)
-        rarity_list = zip(rarity_list[0], rarity_list[1])
-        np.random.shuffle(rarity_list)
+        item_counter = [0]*len(set(rarity_list))
+        for i in rarity_list:
+            item_counter[i] += 1
+        rarity_list = zip(range(len(item_counter)), item_counter)
+        random.shuffle(rarity_list)
         rarity_list.sort(key = lambda x: x[1]) 
         need_requests = [x[0] for x in rarity_list]
 
