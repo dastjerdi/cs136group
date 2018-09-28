@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# This is a dummy peer that just illustrates the available information your peers 
+# This is a dummy peer that just illustrates the available information your peers
 # have available.
 
 # You'll want to copy this file to AgentNameXXX.py for various versions of XXX,
@@ -19,7 +19,7 @@ class AdnoStd(Peer):
         print "post_init(): %s here!" % self.id
         self.dummy_state = dict()
         self.dummy_state["cake"] = "lie"
-    
+
     def requests(self, peers, history):
         """
         peers: available info about the peers (who has what pieces)
@@ -48,21 +48,21 @@ class AdnoStd(Peer):
         requests = []   # We'll put all the things we want here
         # Symmetry breaking is good...
         random.shuffle(needed_pieces)
-       
+
         rarity_list = []
         for peer in peers:
             rarity_list += list(peer.available_pieces)
-        
+
         item_counter = [0]*len(set(rarity_list))
         for i in rarity_list:
             item_counter[i] += 1
         rarity_list = zip(range(len(item_counter)), item_counter)
         random.shuffle(rarity_list)
-        rarity_list.sort(key = lambda x: x[1]) 
+        rarity_list.sort(key = lambda x: x[1])
         need_requests = [x[0] for x in rarity_list]
 
 
-        # Sort peers by id.  This is probably not a useful sort, but other 
+        # Sort peers by id.  This is probably not a useful sort, but other
         # sorts might be useful
         peers.sort(key=lambda p: p.id)
         # request all available pieces from all peers!
@@ -104,22 +104,46 @@ class AdnoStd(Peer):
         # has a list of Download objects for each Download to this peer in
         # the previous round.
 
+
+
+
+
+
         if len(requests) == 0:
             logging.debug("No one wants my pieces!")
             chosen = []
             bws = []
         else:
             logging.debug("Still here: uploading to a random peer")
-            # change my internal state for no reason
-            self.dummy_state["cake"] = "pie"
+            request_ids = []
+            if requests:
+                for requester in requests:
+                    request_ids += [requester.requester_id]
 
-            request = random.choice(requests)
-            chosen = [request.requester_id]
-            # Evenly "split" my upload bandwidth among the one chosen requester
+            max_requests = min(4,len(request_ids))
+
+            download_peers = []
+            if history.downloads:
+                for download in history.downloads[-1]:
+                    download_peers += [(download.blocks, download.from_id)]
+
+            download_peers = sorted(download_peers)
+            if len(download_peers) > 4:
+                download_peers = download_peers[:3]
+
+            chosen = []
+
+            for download_peer in download_peers:
+                if download_peer in request_ids:
+                    chosen += download_peer
+                    request_ids.remove(download_peer)
+
+            random_chosen = random.sample(request_ids, max_requests - len(chosen))
+            chosen +=  random_chosen
             bws = even_split(self.up_bw, len(chosen))
 
         # create actual uploads out of the list of peer ids and bandwidths
         uploads = [Upload(self.id, peer_id, bw)
                    for (peer_id, bw) in zip(chosen, bws)]
-            
+
         return uploads
