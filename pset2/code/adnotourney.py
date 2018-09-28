@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# This is a dummy peer that just illustrates the available information your peers 
+# This is a dummy peer that just illustrates the available information your peers
 # have available.
 
 # You'll want to copy this file to AgentNameXXX.py for various versions of XXX,
@@ -18,7 +18,9 @@ class AdnoTourney(Peer):
         print "post_init(): %s here!" % self.id
         self.dummy_state = dict()
         self.dummy_state["cake"] = "lie"
-    
+        self.tyrant_rate = {}
+        self.last_request = []
+
     def requests(self, peers, history):
         """
         peers: available info about the peers (who has what pieces)
@@ -47,8 +49,8 @@ class AdnoTourney(Peer):
         requests = []   # We'll put all the things we want here
         # Symmetry breaking is good...
         random.shuffle(needed_pieces)
-        
-        # Sort peers by id.  This is probably not a useful sort, but other 
+
+        # Sort peers by id.  This is probably not a useful sort, but other
         # sorts might be useful
         peers.sort(key=lambda p: p.id)
         # request all available pieces from all peers!
@@ -89,22 +91,72 @@ class AdnoTourney(Peer):
         # has a list of Download objects for each Download to this peer in
         # the previous round.
 
+
+        if not self.tyrant_rate:
+            for peer in peers:
+                self.tyrant_rate[peer.id] = [1, self.up_bw / len(peers) , 1]
+
+        if round != 0:
+            for trans in history.uploads[round-1]:
+                self.tyrant_rate[trans.to_id][0] = trans.bw
+
+
+            alpha = .31
+            gamma = .0079
+            non_choke = []
+            for trans in history.downloads[round - 1]:
+                non_choke.append(trans.from_id)
+
+            peer_reqs = []
+            for req in self.last_request:
+                peer_reqs.append(req.peer_id)
+
+            for key in self.tyrant_rate:
+                if key in non_choke:
+                    self.tyrant_rate[key][1] = (1 - gamma)*self.tyrant_rate[key][1]
+                elif key in peer_reqs:
+                    self.tyrant_rate[key][1] = (1 + alpha)*self.tyrant_rate[key][1]
+
+                self.tyrant_rate[key][2] = self.tyrant_rate[key][0] / self.tyrant_rate[key][1]
+
+        upload_order = sorted(self.tyrant_rate.items(), key=lambda x: x[1][2])
+        upload_order = [x[0] for x in upload_order]
+
+
         if len(requests) == 0:
             logging.debug("No one wants my pieces!")
             chosen = []
             bws = []
         else:
             logging.debug("Still here: uploading to a random peer")
-            # change my internal state for no reason
-            self.dummy_state["cake"] = "pie"
+            
+            chosen = []
 
-            request = random.choice(requests)
-            chosen = [request.requester_id]
-            # Evenly "split" my upload bandwidth among the one chosen requester
+            remaining_bw = self.up_bw - .001
+            request_peers = []
+            for req in requests:
+                request_peers.append(req.requester_id)
+
+            max_requests = min(4,len(request_peers))
+
+            counter = 0
+            for peer in upload_order:
+                if counter > 3:
+                    break
+                if peer in request_peers:
+                    chosen += [peer]
+                    request_peers.remove(peer)
+                    counter += 1
+                    print(peer)
+
+
+            print(len(chosen))
+            random_chosen = random.sample(request_peers, max_requests - len(chosen))
+            chosen +=  random_chosen
             bws = even_split(self.up_bw, len(chosen))
 
         # create actual uploads out of the list of peer ids and bandwidths
         uploads = [Upload(self.id, peer_id, bw)
                    for (peer_id, bw) in zip(chosen, bws)]
-            
+
         return uploads

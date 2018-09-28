@@ -128,7 +128,7 @@ class AdnoStd(Peer):
                     download_peers += [(download.blocks, download.from_id)]
 
             download_peers = sorted(download_peers)
-            if len(download_peers) > 4:
+            if len(download_peers) >= 4:
                 download_peers = download_peers[:3]
 
             chosen = []
